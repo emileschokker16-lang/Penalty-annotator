@@ -133,9 +133,22 @@ function show() {
   load(c);
 }
 
+var current = null, seekTries = 0;
 function load(c) {
   if (!playerReady) return;
+  current = c; seekTries = 0;
   player.loadVideoById({ videoId: c.id, startSeconds: c.start, endSeconds: c.end });
+  setTimeout(fixStart, 700);
+  setTimeout(fixStart, 1800);
+}
+function fixStart() {
+  if (!current || !player || !player.getCurrentTime) return;
+  var t = player.getCurrentTime() || 0;
+  if (t < current.start - 2 && seekTries < 5) { seekTries++; player.seekTo(current.start, true); }
+}
+function onState(e) {
+  if (e.data === 1 || e.data === 3) fixStart();
+  if (e.data === 1 && current && player.getCurrentTime() >= current.end) player.pauseVideo();
 }
 function replay() { if (pos < clips.length) load(clips[pos]); }
 
@@ -184,7 +197,7 @@ function onYouTubeIframeAPIReady() {
   player = new YT.Player('yt', {
     width: '100%', height: '100%',
     playerVars: { autoplay: 1, rel: 0, playsinline: 1, modestbranding: 1 },
-    events: { onReady: function () { playerReady = true; if (pos < clips.length) load(clips[pos]); } }
+    events: { onReady: function () { playerReady = true; if (pos < clips.length) load(clips[pos]); }, onStateChange: onState }
   });
 }
 
