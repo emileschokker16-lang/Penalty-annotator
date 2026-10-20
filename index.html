@@ -21,7 +21,7 @@ h3{margin:2px 0 6px;font-size:15px}
 .vbtns{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
 .appr{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:14px}
 .appr .opt{min-height:46px}
-.goal{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,70px);gap:5px;border:6px solid #444;border-bottom:none;padding:5px;background:repeating-linear-gradient(45deg,#fafafa,#fafafa 8px,#efefef 8px,#efefef 16px)}
+.goal{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,58px);gap:5px;border:6px solid #444;border-bottom:none;padding:5px;background:repeating-linear-gradient(45deg,#fafafa,#fafafa 8px,#efefef 8px,#efefef 16px)}
 .opt{display:flex;align-items:center;justify-content:center;flex-direction:column;border:2px solid #bbb;border-radius:8px;padding:6px 8px;text-align:center;cursor:pointer;background:#fff;user-select:none;font-weight:600;font-size:16px;box-sizing:border-box}
 .opt:hover{border-color:#1a7f37}
 .opt.sel{background:#1a7f37;border-color:#1a7f37;color:#fff}
@@ -37,7 +37,7 @@ h3{margin:2px 0 6px;font-size:15px}
 </head>
 <body>
 <div class="top">
-  <h1>Penalty annotator</h1>
+  <h1>Penalty annotator <span class="muted">v4</span></h1>
   <div class="game" id="game">Loading clips...</div>
   <span class="muted" id="progress"></span>
   <span class="status" id="status">Connecting...</span>
@@ -45,7 +45,7 @@ h3{margin:2px 0 6px;font-size:15px}
 
 <div class="layout" id="main" style="display:none">
   <div>
-    <div class="player"><div id="yt"></div></div>
+    <div class="player"><iframe id="yt" src="about:blank" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" frameborder="0"></iframe></div>
     <div class="vbtns">
       <button class="btn2" id="replay">&#8635; Replay clip (R)</button>
       <a class="btn2" id="ytlink" href="#" target="penaltyclip" style="text-decoration:none;color:#222">Open on YouTube</a>
@@ -59,7 +59,7 @@ h3{margin:2px 0 6px;font-size:15px}
     <div class="goal" id="goal"></div>
     <div class="miss" id="miss"></div>
     <div style="margin-top:14px"><button class="btn" id="next">Next &rarr;</button></div>
-    <p class="muted">Keys: 0-6 corner, Q/W/E/T approach, Enter = Next, R = replay.</p>
+    <p class="muted">Keys: 0-9 corner, Q/W/E/T approach, Enter = Next, R = replay.</p>
   </div>
   <div class="col">
     <h3>Validity</h3>
@@ -73,12 +73,12 @@ h3{margin:2px 0 6px;font-size:15px}
 var API = 'https://e1000.app.n8n.cloud/webhook/penalty-annotator';
 var APPROACHES = ['regular', 'hop', 'stop', 'stop & hop'];
 var APPROACH_KEYS = { q: 'regular', w: 'hop', e: 'stop', t: 'stop & hop' };
-var CORNERS = [['1','top left'],['2','top center'],['3','top right'],['4','bottom left'],['5','bottom center'],['6','bottom right']];
+var CORNERS = [['1','top left'],['2','top center'],['3','top right'],['4','middle left'],['5','middle center'],['6','middle right'],['7','bottom left'],['8','bottom center'],['9','bottom right']];
 
 var clips = [], pos = 0, total = 0, doneAtStart = 0;
 var sel = { corner: null, approach: null, invalid: false };
 var queue = [], saving = false, savedCount = 0, failed = [];
-var player = null, playerReady = false;
+var replayCount = 0;
 
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -120,7 +120,7 @@ function show() {
   if (pos >= clips.length) {
     $('main').style.display = 'none'; $('finished').style.display = 'block';
     $('game').textContent = 'Done'; $('progress').textContent = '';
-    if (player && playerReady) player.stopVideo();
+    $('yt').src = 'about:blank';
     return;
   }
   var c = clips[pos];
@@ -133,32 +133,14 @@ function show() {
   load(c);
 }
 
-var current = null, reachedStart = false, loadedId = null;
 function load(c) {
-  current = c; reachedStart = false;
-  if (!playerReady) return;
-  if (loadedId === c.id && player.seekTo) { player.seekTo(c.start, true); player.playVideo(); return; }
-  loadedId = c.id;
-  player.loadVideoById({ videoId: c.id, startSeconds: c.start, endSeconds: c.end });
+  var s = Math.max(0, Math.floor(Number(c.start) || 0));
+  var e = Math.floor(Number(c.end) || 0);
+  var url = 'https://www.youtube.com/embed/' + encodeURIComponent(c.id) + '?start=' + s + (e > s ? '&end=' + e : '') +
+    '&autoplay=1&rel=0&playsinline=1&r=' + (replayCount++);
+  $('yt').src = url;
 }
-function fixStart() {
-  if (!current || !player || !player.getCurrentTime || !player.getPlayerState) return;
-  var st = player.getPlayerState();
-  if (st !== 1 && st !== 3) return;
-  var t = player.getCurrentTime() || 0;
-  if (!reachedStart) {
-    if (t < current.start - 1.5) { player.seekTo(current.start, true); return; }
-    reachedStart = true;
-  }
-  if (st === 1 && t >= current.end) player.pauseVideo();
-}
-setInterval(fixStart, 500);
-function onState(e) { if (e.data === 1 || e.data === 3) fixStart(); }
-function replay() {
-  if (pos >= clips.length || !playerReady) return;
-  current = clips[pos]; reachedStart = false;
-  player.seekTo(current.start, true); player.playVideo();
-}
+function replay() { if (pos < clips.length) load(clips[pos]); }
 
 function submitNext() {
   if (!sel.invalid && (!sel.corner || !sel.approach)) { alert('Select a corner and an approach, or click "Clip not valid".'); return; }
@@ -191,7 +173,7 @@ function pump() {
 document.addEventListener('keydown', function (e) {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   var k = e.key.toLowerCase();
-  if (/^[0-6]$/.test(k)) pick('corner', k);
+  if (/^[0-9]$/.test(k)) pick('corner', k);
   else if (APPROACH_KEYS[k]) pick('approach', APPROACH_KEYS[k]);
   else if (k === 'r') replay();
   else if (k === 'enter') { e.preventDefault(); submitNext(); }
@@ -201,19 +183,6 @@ window.addEventListener('beforeunload', function (e) {
   if (queue.length || saving) { e.preventDefault(); e.returnValue = ''; }
 });
 
-function onYouTubeIframeAPIReady() {
-  var first = pos < clips.length ? clips[pos] : null;
-  var pv = { autoplay: 1, rel: 0, playsinline: 1, modestbranding: 1 };
-  if (first) { pv.start = first.start; pv.end = first.end; current = first; loadedId = first.id; }
-  var opts = { width: '100%', height: '100%', playerVars: pv,
-    events: { onReady: function () {
-      playerReady = true;
-      if (pos < clips.length && clips[pos] !== first) { loadedId = null; load(clips[pos]); }
-    }, onStateChange: onState } };
-  if (first) opts.videoId = first.id;
-  player = new YT.Player('yt', opts);
-}
-
 buildButtons();
 fetch(API + '?api=1')
   .then(function (r) { return r.json(); })
@@ -222,7 +191,6 @@ fetch(API + '?api=1')
     $('main').style.display = 'grid';
     setStatus();
     show();
-    var s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s);
   })
   .catch(function () {
     $('game').textContent = 'Could not load the clip list.';
