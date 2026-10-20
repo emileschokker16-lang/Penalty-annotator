@@ -133,24 +133,32 @@ function show() {
   load(c);
 }
 
-var current = null, seekTries = 0;
+var current = null, reachedStart = false, loadedId = null;
 function load(c) {
+  current = c; reachedStart = false;
   if (!playerReady) return;
-  current = c; seekTries = 0;
+  if (loadedId === c.id && player.seekTo) { player.seekTo(c.start, true); player.playVideo(); return; }
+  loadedId = c.id;
   player.loadVideoById({ videoId: c.id, startSeconds: c.start, endSeconds: c.end });
-  setTimeout(fixStart, 700);
-  setTimeout(fixStart, 1800);
 }
 function fixStart() {
-  if (!current || !player || !player.getCurrentTime) return;
+  if (!current || !player || !player.getCurrentTime || !player.getPlayerState) return;
+  var st = player.getPlayerState();
+  if (st !== 1 && st !== 3) return;
   var t = player.getCurrentTime() || 0;
-  if (t < current.start - 2 && seekTries < 5) { seekTries++; player.seekTo(current.start, true); }
+  if (!reachedStart) {
+    if (t < current.start - 1.5) { player.seekTo(current.start, true); return; }
+    reachedStart = true;
+  }
+  if (st === 1 && t >= current.end) player.pauseVideo();
 }
-function onState(e) {
-  if (e.data === 1 || e.data === 3) fixStart();
-  if (e.data === 1 && current && player.getCurrentTime() >= current.end) player.pauseVideo();
+setInterval(fixStart, 500);
+function onState(e) { if (e.data === 1 || e.data === 3) fixStart(); }
+function replay() {
+  if (pos >= clips.length || !playerReady) return;
+  current = clips[pos]; reachedStart = false;
+  player.seekTo(current.start, true); player.playVideo();
 }
-function replay() { if (pos < clips.length) load(clips[pos]); }
 
 function submitNext() {
   if (!sel.invalid && (!sel.corner || !sel.approach)) { alert('Select a corner and an approach, or click "Clip not valid".'); return; }
@@ -194,11 +202,16 @@ window.addEventListener('beforeunload', function (e) {
 });
 
 function onYouTubeIframeAPIReady() {
-  player = new YT.Player('yt', {
-    width: '100%', height: '100%',
-    playerVars: { autoplay: 1, rel: 0, playsinline: 1, modestbranding: 1 },
-    events: { onReady: function () { playerReady = true; if (pos < clips.length) load(clips[pos]); }, onStateChange: onState }
-  });
+  var first = pos < clips.length ? clips[pos] : null;
+  var pv = { autoplay: 1, rel: 0, playsinline: 1, modestbranding: 1 };
+  if (first) { pv.start = first.start; pv.end = first.end; current = first; loadedId = first.id; }
+  var opts = { width: '100%', height: '100%', playerVars: pv,
+    events: { onReady: function () {
+      playerReady = true;
+      if (pos < clips.length && clips[pos] !== first) { loadedId = null; load(clips[pos]); }
+    }, onStateChange: onState } };
+  if (first) opts.videoId = first.id;
+  player = new YT.Player('yt', opts);
 }
 
 buildButtons();
