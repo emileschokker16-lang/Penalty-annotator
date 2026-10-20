@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Penalty annotator</title>
+<style>
+html,body{margin:0;height:100%}
+body{font-family:system-ui,sans-serif;color:#222;padding:10px 16px;box-sizing:border-box}
+h1{font-size:18px;margin:0}
+h3{margin:2px 0 6px;font-size:15px}
+.top{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.game{background:#eef3fb;border-left:4px solid #1f5fbf;padding:4px 10px;border-radius:4px;font-size:15px;line-height:1.35}
+.muted{color:#666;font-size:13px}
+.status{padding:3px 10px;border-radius:6px;font-size:13px;background:#eee}
+.status.ok{background:#e6f4ea}.status.err{background:#fde7e7;color:#a00;font-weight:600}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 380px 190px;gap:22px;align-items:start}
+.player{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:6px;overflow:hidden}
+.player iframe,#yt{position:absolute;inset:0;width:100%;height:100%}
+.vbtns{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.appr{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:14px}
+.appr .opt{min-height:46px}
+.goal{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,70px);gap:5px;border:6px solid #444;border-bottom:none;padding:5px;background:repeating-linear-gradient(45deg,#fafafa,#fafafa 8px,#efefef 8px,#efefef 16px)}
+.opt{display:flex;align-items:center;justify-content:center;flex-direction:column;border:2px solid #bbb;border-radius:8px;padding:6px 8px;text-align:center;cursor:pointer;background:#fff;user-select:none;font-weight:600;font-size:16px;box-sizing:border-box}
+.opt:hover{border-color:#1a7f37}
+.opt.sel{background:#1a7f37;border-color:#1a7f37;color:#fff}
+.opt.bad.sel{background:#c62828;border-color:#c62828}
+.sub{font-weight:400;font-size:11px}
+.miss{margin-top:8px}
+.col{display:flex;flex-direction:column;gap:8px}
+.btn{font-size:18px;padding:12px;border:0;border-radius:6px;background:#1a7f37;color:#fff;cursor:pointer;width:100%}
+.btn2{font-size:14px;padding:8px 12px;border:1px solid #999;border-radius:6px;background:#f3f3f3;cursor:pointer}
+.col .btn2{width:100%}
+.done{font-size:20px;margin-top:30px}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Penalty annotator</h1>
+  <div class="game" id="game">Loading clips...</div>
+  <span class="muted" id="progress"></span>
+  <span class="status" id="status">Connecting...</span>
+</div>
+
+<div class="layout" id="main" style="display:none">
+  <div>
+    <div class="player"><div id="yt"></div></div>
+    <div class="vbtns">
+      <button class="btn2" id="replay">&#8635; Replay clip (R)</button>
+      <a class="btn2" id="ytlink" href="#" target="penaltyclip" style="text-decoration:none;color:#222">Open on YouTube</a>
+      <span class="muted" id="clipinfo"></span>
+    </div>
+  </div>
+  <div>
+    <h3>Penalty approach</h3>
+    <div class="appr" id="appr"></div>
+    <h3>Penalty corner</h3>
+    <div class="goal" id="goal"></div>
+    <div class="miss" id="miss"></div>
+    <div style="margin-top:14px"><button class="btn" id="next">Next &rarr;</button></div>
+    <p class="muted">Keys: 0-6 corner, Q/W/E/T approach, Enter = Next, R = replay.</p>
+  </div>
+  <div class="col">
+    <h3>Validity</h3>
+    <div class="opt bad" id="invalid">Clip not valid</div>
+    <button class="btn2" id="blocked">Blocked in my country &rarr; skip</button>
+  </div>
+</div>
+<div class="done" id="finished" style="display:none">All clips are annotated. Nice work.</div>
+
+<script>
+var API = 'https://e1000.app.n8n.cloud/webhook/penalty-annotator';
+var APPROACHES = ['regular', 'hop', 'stop', 'stop & hop'];
+var APPROACH_KEYS = { q: 'regular', w: 'hop', e: 'stop', t: 'stop & hop' };
+var CORNERS = [['1','top left'],['2','top center'],['3','top right'],['4','bottom left'],['5','bottom center'],['6','bottom right']];
+
+var clips = [], pos = 0, total = 0, doneAtStart = 0;
+var sel = { corner: null, approach: null, invalid: false };
+var queue = [], saving = false, savedCount = 0, failed = [];
+var player = null, playerReady = false;
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function buildButtons() {
+  APPROACHES.forEach(function (a) {
+    var d = document.createElement('div'); d.className = 'opt'; d.textContent = a; d.dataset.approach = a;
+    d.onclick = function () { pick('approach', a); }; $('appr').appendChild(d);
+  });
+  CORNERS.forEach(function (c) {
+    var d = document.createElement('div'); d.className = 'opt'; d.dataset.corner = c[0];
+    d.innerHTML = c[0] + '<span class="sub">' + c[1] + '</span>';
+    d.onclick = function () { pick('corner', c[0]); }; $('goal').appendChild(d);
+  });
+  var m = document.createElement('div'); m.className = 'opt'; m.dataset.corner = '0';
+  m.innerHTML = '0<span class="sub">outside goal (miss)</span>';
+  m.onclick = function () { pick('corner', '0'); }; $('miss').appendChild(m);
+  $('invalid').onclick = function () { sel.invalid = !sel.invalid; paint(); };
+  $('next').onclick = submitNext;
+  $('blocked').onclick = function () { submit({ blocked: 'yes' }); };
+  $('replay').onclick = replay;
+}
+
+function pick(kind, v) { sel[kind] = v; paint(); }
+function paint() {
+  document.querySelectorAll('[data-approach]').forEach(function (d) { d.classList.toggle('sel', d.dataset.approach === sel.approach); });
+  document.querySelectorAll('[data-corner]').forEach(function (d) { d.classList.toggle('sel', d.dataset.corner === sel.corner); });
+  $('invalid').classList.toggle('sel', sel.invalid);
+}
+
+function setStatus() {
+  var s = $('status');
+  if (failed.length) { s.className = 'status err'; s.textContent = 'NOT saved: Nr ' + failed.join(', ') + ' - check your connection, then reload the page (those clips will come back).'; return; }
+  if (queue.length || saving) { s.className = 'status'; s.textContent = 'Saving ' + (queue.length + (saving ? 1 : 0)) + '...'; return; }
+  s.className = 'status ok'; s.textContent = savedCount ? 'All saved (' + savedCount + ' this session)' : 'Connected';
+}
+
+function show() {
+  if (pos >= clips.length) {
+    $('main').style.display = 'none'; $('finished').style.display = 'block';
+    $('game').textContent = 'Done'; $('progress').textContent = '';
+    if (player && playerReady) player.stopVideo();
+    return;
+  }
+  var c = clips[pos];
+  $('game').innerHTML = '<b>' + esc(c.home) + ' vs ' + esc(c.away) + '</b> (' + esc(c.score) + ') &middot; ' + esc(c.league) + ' ' + esc(c.season) + ' &middot; ' + esc(c.date) +
+    '<br>Taker: <b>' + esc(c.player) + '</b> (' + esc(c.team) + ') &middot; GK: ' + esc(c.gk) + ' &middot; minute ' + esc(c.minute) + ' &middot; ' + esc(c.result);
+  $('progress').textContent = 'Clip ' + (doneAtStart + pos + 1) + ' of ' + total + ' (' + (clips.length - pos) + ' remaining) · Nr ' + c.nr;
+  $('clipinfo').textContent = c.start + 's to ' + c.end + 's';
+  $('ytlink').href = 'https://www.youtube.com/watch?v=' + c.id + '&t=' + c.start + 's';
+  sel = { corner: null, approach: null, invalid: false }; paint();
+  load(c);
+}
+
+function load(c) {
+  if (!playerReady) return;
+  player.loadVideoById({ videoId: c.id, startSeconds: c.start, endSeconds: c.end });
+}
+function replay() { if (pos < clips.length) load(clips[pos]); }
+
+function submitNext() {
+  if (!sel.invalid && (!sel.corner || !sel.approach)) { alert('Select a corner and an approach, or click "Clip not valid".'); return; }
+  var extra = sel.invalid ? { invalid: 'yes' } : { corner: sel.corner, approach: sel.approach };
+  submit(extra);
+}
+
+function submit(extra) {
+  if (pos >= clips.length) return;
+  var data = { api: '1', row_key: clips[pos].nr };
+  for (var k in extra) data[k] = extra[k];
+  queue.push(data);
+  pos++;
+  show();
+  pump();
+}
+
+function pump() {
+  setStatus();
+  if (saving || !queue.length) return;
+  saving = true;
+  var data = queue[0];
+  fetch(API, { method: 'POST', body: new URLSearchParams(data) })
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function (j) { if (j.saved !== true) throw new Error('row check failed'); savedCount++; })
+    .catch(function () { failed.push(data.row_key); })
+    .then(function () { queue.shift(); saving = false; pump(); });
+}
+
+document.addEventListener('keydown', function (e) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  var k = e.key.toLowerCase();
+  if (/^[0-6]$/.test(k)) pick('corner', k);
+  else if (APPROACH_KEYS[k]) pick('approach', APPROACH_KEYS[k]);
+  else if (k === 'r') replay();
+  else if (k === 'enter') { e.preventDefault(); submitNext(); }
+});
+
+window.addEventListener('beforeunload', function (e) {
+  if (queue.length || saving) { e.preventDefault(); e.returnValue = ''; }
+});
+
+function onYouTubeIframeAPIReady() {
+  player = new YT.Player('yt', {
+    width: '100%', height: '100%',
+    playerVars: { autoplay: 1, rel: 0, playsinline: 1, modestbranding: 1 },
+    events: { onReady: function () { playerReady = true; if (pos < clips.length) load(clips[pos]); } }
+  });
+}
+
+buildButtons();
+fetch(API + '?api=1')
+  .then(function (r) { return r.json(); })
+  .then(function (j) {
+    clips = j.clips || []; total = j.total || clips.length; doneAtStart = j.done || 0;
+    $('main').style.display = 'grid';
+    setStatus();
+    show();
+    var s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s);
+  })
+  .catch(function () {
+    $('game').textContent = 'Could not load the clip list.';
+    $('status').className = 'status err';
+    $('status').textContent = 'The n8n workflow is not reachable (is it published?). Reload to try again.';
+  });
+</script>
+</body>
+</html>
