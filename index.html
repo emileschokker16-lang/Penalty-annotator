@@ -37,10 +37,11 @@ h3{margin:2px 0 6px;font-size:15px}
 </head>
 <body>
 <div class="top">
-  <h1>Penalty annotator <span class="muted">v4</span></h1>
+  <h1>Penalty annotator <span class="muted">v5</span></h1>
   <div class="game" id="game">Loading clips...</div>
   <span class="muted" id="progress"></span>
   <span class="status" id="status">Connecting...</span>
+  <span style="margin-left:12px">Start at penalty Nr <input id="fromnr" type="number" min="0" style="width:80px;font-size:15px"> <button id="go" style="font-size:15px;padding:3px 10px">Start</button></span>
 </div>
 
 <div class="layout" id="main" style="display:none">
@@ -184,19 +185,31 @@ window.addEventListener('beforeunload', function (e) {
 });
 
 buildButtons();
-fetch(API + '?api=1')
-  .then(function (r) { return r.json(); })
-  .then(function (j) {
-    clips = j.clips || []; total = j.total || clips.length; doneAtStart = j.done || 0;
-    $('main').style.display = 'grid';
-    setStatus();
-    show();
-  })
-  .catch(function () {
-    $('game').textContent = 'Could not load the clip list.';
-    $('status').className = 'status err';
-    $('status').textContent = 'The n8n workflow is not reachable (is it published?). Reload to try again.';
-  });
+function loadList(from) {
+  if (queue.length || saving) { alert('Still saving, try again in a moment.'); return; }
+  $('main').style.display = 'none'; $('finished').style.display = 'none';
+  $('game').textContent = 'Loading clips...'; $('progress').textContent = '';
+  fetch(API + '?api=1' + (from !== '' ? '&from=' + encodeURIComponent(from) : ''))
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      clips = j.clips || []; total = j.total || clips.length; doneAtStart = j.done || 0; pos = 0;
+      $('main').style.display = 'grid';
+      setStatus();
+      show();
+    })
+    .catch(function () {
+      $('game').textContent = 'Could not load the clip list.';
+      $('status').className = 'status err';
+      $('status').textContent = 'The n8n workflow is not reachable (is it published?). Reload to try again.';
+    });
+}
+$('go').onclick = function () { var v = String($('fromnr').value || '').trim(); try { localStorage.setItem('penaltyFrom', v); } catch (e) {} loadList(v); };
+$('fromnr').addEventListener('keydown', function (e) { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); $('go').click(); } });
+var urlFrom = new URLSearchParams(location.search).get('from');
+var savedFrom = ''; try { savedFrom = localStorage.getItem('penaltyFrom') || ''; } catch (e) {}
+var startFrom = urlFrom !== null ? urlFrom : savedFrom;
+$('fromnr').value = startFrom;
+loadList(String(startFrom || '').trim());
 </script>
 </body>
 </html>
