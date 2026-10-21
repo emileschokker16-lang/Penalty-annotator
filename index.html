@@ -27,7 +27,12 @@ h3{margin:2px 0 6px;font-size:15px}
 .opt.sel{background:#1a7f37;border-color:#1a7f37;color:#fff}
 .opt.bad.sel{background:#c62828;border-color:#c62828}
 .sub{font-weight:400;font-size:11px}
-.miss{margin-top:8px}
+.wrap{display:grid;grid-template-columns:62px 1fr 62px;grid-template-rows:52px auto;gap:6px}
+.out{background:#fff4e0;border:2px dashed #d08a1e;color:#8a5300;font-size:15px}
+.out.sel{background:#d08a1e;border-color:#d08a1e;color:#fff}
+.out.off{opacity:.25;cursor:not-allowed;pointer-events:none}
+.sidecol{display:grid;grid-template-rows:58px 58px 58px;gap:5px;padding-top:11px}
+.minus{color:#8a5300;font-weight:600}
 .col{display:flex;flex-direction:column;gap:8px}
 .btn{font-size:18px;padding:12px;border:0;border-radius:6px;background:#1a7f37;color:#fff;cursor:pointer;width:100%}
 .btn2{font-size:14px;padding:8px 12px;border:1px solid #999;border-radius:6px;background:#f3f3f3;cursor:pointer}
@@ -37,7 +42,7 @@ h3{margin:2px 0 6px;font-size:15px}
 </head>
 <body>
 <div class="top">
-  <h1>Penalty annotator <span class="muted">v5</span></h1>
+  <h1>Penalty annotator <span class="muted">v6</span></h1>
   <div class="game" id="game">Loading clips...</div>
   <span class="muted" id="progress"></span>
   <span class="status" id="status">Connecting...</span>
@@ -57,10 +62,15 @@ h3{margin:2px 0 6px;font-size:15px}
     <h3>Penalty approach</h3>
     <div class="appr" id="appr"></div>
     <h3>Penalty corner</h3>
-    <div class="goal" id="goal"></div>
-    <div class="miss" id="miss"></div>
+    <div class="wrap">
+      <div class="opt out" data-corner="-2" style="grid-column:1 / 4;grid-row:1">-2<span class="sub">over the bar</span></div>
+      <div class="sidecol" style="grid-column:1;grid-row:2"><div class="opt out" data-corner="-1">-1<span class="sub">wide high</span></div><div class="opt out" data-corner="-4">-4<span class="sub">wide</span></div><div class="opt out" data-corner="-7">-7<span class="sub">wide low</span></div></div>
+      <div class="goal" id="goal" style="grid-column:2;grid-row:2"></div>
+      <div class="sidecol" style="grid-column:3;grid-row:2"><div class="opt out" data-corner="-3">-3<span class="sub">wide high</span></div><div class="opt out" data-corner="-6">-6<span class="sub">wide</span></div><div class="opt out" data-corner="-9">-9<span class="sub">wide low</span></div></div>
+    </div>
+    <div class="muted" id="outnote" style="margin-top:4px"></div>
     <div style="margin-top:14px"><button class="btn" id="next">Next &rarr;</button></div>
-    <p class="muted">Keys: 0-9 corner, Q/W/E/T approach, Enter = Next, R = replay.</p>
+    <p class="muted">Keys: 1-9 corner, minus then digit = outside (e.g. - 2), Q/W/E/T approach, Enter = Next, R = replay.</p>
   </div>
   <div class="col">
     <h3>Validity</h3>
@@ -94,16 +104,16 @@ function buildButtons() {
     d.innerHTML = c[0] + '<span class="sub">' + c[1] + '</span>';
     d.onclick = function () { pick('corner', c[0]); }; $('goal').appendChild(d);
   });
-  var m = document.createElement('div'); m.className = 'opt'; m.dataset.corner = '0';
-  m.innerHTML = '0<span class="sub">outside goal (miss)</span>';
-  m.onclick = function () { pick('corner', '0'); }; $('miss').appendChild(m);
+  document.querySelectorAll('.out').forEach(function (d) { d.onclick = function () { pick('corner', d.dataset.corner); }; });
   $('invalid').onclick = function () { sel.invalid = !sel.invalid; paint(); };
   $('next').onclick = submitNext;
   $('blocked').onclick = function () { submit({ blocked: 'yes' }); };
   $('replay').onclick = replay;
 }
 
-function pick(kind, v) { sel[kind] = v; paint(); }
+var allowOut = true, minusPending = false;
+function isOutside(v) { return /^-/.test(String(v)); }
+function pick(kind, v) { if (kind === 'corner' && isOutside(v) && !allowOut) return; sel[kind] = v; paint(); }
 function paint() {
   document.querySelectorAll('[data-approach]').forEach(function (d) { d.classList.toggle('sel', d.dataset.approach === sel.approach); });
   document.querySelectorAll('[data-corner]').forEach(function (d) { d.classList.toggle('sel', d.dataset.corner === sel.corner); });
@@ -130,6 +140,11 @@ function show() {
   $('progress').textContent = 'Clip ' + (doneAtStart + pos + 1) + ' of ' + total + ' (' + (clips.length - pos) + ' remaining) · Nr ' + c.nr;
   $('clipinfo').textContent = c.start + 's to ' + c.end + 's';
   $('ytlink').href = 'https://www.youtube.com/watch?v=' + c.id + '&t=' + c.start + 's';
+  var res = String(c.result || '').toLowerCase();
+  allowOut = !(res === 'goal');
+  document.querySelectorAll('.out').forEach(function (d) { d.classList.toggle('off', !allowOut); });
+  $('outnote').textContent = allowOut ? 'No goal: outside-the-goal zones are available.' : 'Goal: outside zones are disabled.';
+  minusPending = false;
   sel = { corner: null, approach: null, invalid: false }; paint();
   load(c);
 }
@@ -174,7 +189,8 @@ function pump() {
 document.addEventListener('keydown', function (e) {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   var k = e.key.toLowerCase();
-  if (/^[0-9]$/.test(k)) pick('corner', k);
+  if (k === '-' ) { minusPending = allowOut; return; }
+  if (/^[1-9]$/.test(k)) { var v = minusPending ? '-' + k : k; minusPending = false; if (v === '-5' || v === '-8') return; pick('corner', v); }
   else if (APPROACH_KEYS[k]) pick('approach', APPROACH_KEYS[k]);
   else if (k === 'r') replay();
   else if (k === 'enter') { e.preventDefault(); submitNext(); }
