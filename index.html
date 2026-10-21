@@ -38,15 +38,21 @@ h3{margin:2px 0 6px;font-size:15px}
 .btn2{font-size:14px;padding:8px 12px;border:1px solid #999;border-radius:6px;background:#f3f3f3;cursor:pointer}
 .col .btn2{width:100%}
 .done{font-size:20px;margin-top:30px}
+.filters{display:flex;gap:12px;font-size:13px;background:#f6f6f6;padding:4px 10px;border-radius:6px}
+.filters label{cursor:pointer;white-space:nowrap}
+.reviewbox{display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 10px;border:2px solid #d08a1e;border-radius:6px;background:#fff8ec;cursor:pointer;font-weight:600}
+.reviewbox input{width:18px;height:18px}
+.note{background:#fff3cd;border-left:4px solid #d39e00;padding:4px 10px;border-radius:4px;font-size:13px;margin-top:6px}
 </style>
 </head>
 <body>
 <div class="top">
-  <h1>Penalty annotator <span class="muted">v6</span></h1>
+  <h1>Penalty annotator <span class="muted">v7</span></h1>
   <div class="game" id="game">Loading clips...</div>
   <span class="muted" id="progress"></span>
   <span class="status" id="status">Connecting...</span>
   <span style="margin-left:12px">Start at penalty Nr <input id="fromnr" type="number" min="0" style="width:80px;font-size:15px"> <button id="go" style="font-size:15px;padding:3px 10px">Start</button></span>
+  <span class="filters"><label><input type="checkbox" id="f_done" checked> Skip already entered</label><label><input type="checkbox" id="f_noclip" checked> Skip video-but-no-clip</label><label><input type="checkbox" id="f_blocked" checked> Skip geo-blocked</label></span>
 </div>
 
 <div class="layout" id="main" style="display:none">
@@ -69,7 +75,9 @@ h3{margin:2px 0 6px;font-size:15px}
       <div class="sidecol" style="grid-column:3;grid-row:2"><div class="opt out" data-corner="-3">-3<span class="sub">wide high</span></div><div class="opt out" data-corner="-6">-6<span class="sub">wide</span></div><div class="opt out" data-corner="-9">-9<span class="sub">wide low</span></div></div>
     </div>
     <div class="muted" id="outnote" style="margin-top:4px"></div>
-    <div style="margin-top:14px"><button class="btn" id="next">Next &rarr;</button></div>
+    <div class="note" id="clipnote" style="display:none"></div>
+    <label class="reviewbox"><input type="checkbox" id="review"> Flag assessment for review</label>
+    <div style="margin-top:10px"><button class="btn" id="next">Next &rarr;</button></div>
     <p class="muted">Keys: 1-9 corner, minus then digit = outside (e.g. - 2), Q/W/E/T approach, Enter = Next, R = replay.</p>
   </div>
   <div class="col">
@@ -145,7 +153,16 @@ function show() {
   document.querySelectorAll('.out').forEach(function (d) { d.classList.toggle('off', !allowOut); });
   $('outnote').textContent = allowOut ? 'No goal: outside-the-goal zones are available.' : 'Goal: outside zones are disabled.';
   minusPending = false;
-  sel = { corner: null, approach: null, invalid: false }; paint();
+  var notes = [];
+  if (c.noclip) notes.push('No clip: this is the full video. Find the penalty yourself (minute ' + esc(c.minute) + ').');
+  if (c.prev_corner || c.prev_approach) notes.push('Already entered: corner ' + esc(c.prev_corner || '-') + ', ' + esc(c.prev_approach || '-') + (c.prev_issue ? ' &middot; issue: ' + esc(c.prev_issue) : '') + '. Next will overwrite.');
+  $('clipnote').innerHTML = notes.join('<br>'); $('clipnote').style.display = notes.length ? 'block' : 'none';
+  var pc = String(c.prev_corner || ''), pa = String(c.prev_approach || '');
+  sel = { corner: null, approach: null, invalid: pc === 'invalid' };
+  if (/^-?[0-9]$/.test(pc) && (allowOut || !isOutside(pc))) sel.corner = pc;
+  if (APPROACHES.indexOf(pa) >= 0) sel.approach = pa;
+  $('review').checked = /review assessment/i.test(String(c.prev_issue || ''));
+  paint();
   load(c);
 }
 
@@ -161,6 +178,7 @@ function replay() { if (pos < clips.length) load(clips[pos]); }
 function submitNext() {
   if (!sel.invalid && (!sel.corner || !sel.approach)) { alert('Select a corner and an approach, or click "Clip not valid".'); return; }
   var extra = sel.invalid ? { invalid: 'yes' } : { corner: sel.corner, approach: sel.approach };
+  if ($('review').checked) extra.review = 'yes';
   submit(extra);
 }
 
@@ -205,7 +223,9 @@ function loadList(from) {
   if (queue.length || saving) { alert('Still saving, try again in a moment.'); return; }
   $('main').style.display = 'none'; $('finished').style.display = 'none';
   $('game').textContent = 'Loading clips...'; $('progress').textContent = '';
-  fetch(API + '?api=1' + (from !== '' ? '&from=' + encodeURIComponent(from) : ''))
+  var qs = '?api=1' + (from !== '' ? '&from=' + encodeURIComponent(from) : '') +
+    ($('f_done').checked ? '' : '&incl_done=1') + ($('f_noclip').checked ? '' : '&incl_noclip=1') + ($('f_blocked').checked ? '' : '&incl_blocked=1');
+  fetch(API + qs)
     .then(function (r) { return r.json(); })
     .then(function (j) {
       clips = j.clips || []; total = j.total || clips.length; doneAtStart = j.done || 0; pos = 0;
@@ -225,6 +245,7 @@ var urlFrom = new URLSearchParams(location.search).get('from');
 var savedFrom = ''; try { savedFrom = localStorage.getItem('penaltyFrom') || ''; } catch (e) {}
 var startFrom = urlFrom !== null ? urlFrom : savedFrom;
 $('fromnr').value = startFrom;
+['f_done','f_noclip','f_blocked'].forEach(function (id) { $(id).onchange = function () { $('go').click(); }; });
 loadList(String(startFrom || '').trim());
 </script>
 </body>
