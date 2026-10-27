@@ -48,7 +48,7 @@ h3{margin:2px 0 6px;font-size:15px}
 </head>
 <body>
 <div class="top">
-  <h1>Penalty annotator <span class="muted">v8</span></h1>
+  <h1>Penalty annotator <span class="muted">v9</span></h1>
   <div class="game" id="game">Loading clips...</div>
   <span class="muted" id="progress"></span>
   <span class="who" id="who">Annotator: <span class="opt" data-who="lise">Lise</span><span class="opt" data-who="emile">Emile</span></span>
@@ -150,7 +150,7 @@ function show() {
   var c = clips[pos];
   $('game').innerHTML = '<b>' + esc(c.home) + ' vs ' + esc(c.away) + '</b> (' + esc(c.score) + ') &middot; ' + esc(c.league) + ' ' + esc(c.season) + ' &middot; ' + esc(c.date) +
     '<br>Taker: <b>' + esc(c.player) + '</b> (' + esc(c.team) + ') &middot; GK: ' + esc(c.gk) + ' &middot; minute ' + esc(c.minute) + ' &middot; ' + esc(c.result);
-  $('progress').textContent = 'Clip ' + (doneAtStart + pos + 1) + ' of ' + total + ' (' + (clips.length - pos) + ' remaining) · Nr ' + c.nr;
+  $('progress').textContent = 'Penalty nr ' + c.nr;
   $('clipinfo').textContent = c.start + 's to ' + c.end + 's';
   $('ytlink').href = 'https://www.youtube.com/watch?v=' + c.id + '&t=' + c.start + 's';
   var res = String(c.result || '').toLowerCase();
