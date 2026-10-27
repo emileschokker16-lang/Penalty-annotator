@@ -42,14 +42,16 @@ h3{margin:2px 0 6px;font-size:15px}
 .filters label{cursor:pointer;white-space:nowrap}
 .reviewbox{display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 10px;border:2px solid #d08a1e;border-radius:6px;background:#fff8ec;cursor:pointer;font-weight:600}
 .reviewbox input{width:18px;height:18px}
+.who{display:flex;gap:6px;align-items:center;font-size:14px;font-weight:600}.who .opt{padding:4px 14px;font-size:15px}.who.need{outline:3px solid #c62828;border-radius:8px;padding:2px}
 .note{background:#fff3cd;border-left:4px solid #d39e00;padding:4px 10px;border-radius:4px;font-size:13px;margin-top:6px}
 </style>
 </head>
 <body>
 <div class="top">
-  <h1>Penalty annotator <span class="muted">v7</span></h1>
+  <h1>Penalty annotator <span class="muted">v8</span></h1>
   <div class="game" id="game">Loading clips...</div>
   <span class="muted" id="progress"></span>
+  <span class="who" id="who">Annotator: <span class="opt" data-who="lise">Lise</span><span class="opt" data-who="emile">Emile</span></span>
   <span class="status" id="status">Connecting...</span>
   <span style="margin-left:12px">Start at penalty Nr <input id="fromnr" type="number" min="0" style="width:80px;font-size:15px"> <button id="go" style="font-size:15px;padding:3px 10px">Start</button></span>
   <span class="filters"><label><input type="checkbox" id="f_done" checked> Skip already entered</label><label><input type="checkbox" id="f_noclip" checked> Skip video-but-no-clip</label><label><input type="checkbox" id="f_blocked" checked> Skip geo-blocked</label></span>
@@ -98,6 +100,9 @@ var clips = [], pos = 0, total = 0, doneAtStart = 0;
 var sel = { corner: null, approach: null, invalid: false };
 var queue = [], saving = false, savedCount = 0, failed = [];
 var replayCount = 0;
+var annotator = '';
+try { annotator = localStorage.getItem('penaltyAnnotator') || ''; } catch (e) {}
+function paintWho() { document.querySelectorAll('[data-who]').forEach(function (d) { d.classList.toggle('sel', d.dataset.who === annotator); }); $('who').classList.toggle('need', !annotator); }
 
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -130,7 +135,7 @@ function paint() {
 
 function setStatus() {
   var s = $('status');
-  if (failed.length) { s.className = 'status err'; s.textContent = 'NOT saved: Nr ' + failed.join(', ') + ' - check your connection, then reload the page (those clips will come back).'; return; }
+  if (failed.length) { s.className = 'status err'; s.textContent = 'NOT saved: Nr ' + failed.join(', ') + ' (cells already filled are never overwritten; otherwise check connection and reload).'; return; }
   if (queue.length || saving) { s.className = 'status'; s.textContent = 'Saving ' + (queue.length + (saving ? 1 : 0)) + '...'; return; }
   s.className = 'status ok'; s.textContent = savedCount ? 'All saved (' + savedCount + ' this session)' : 'Connected';
 }
@@ -155,7 +160,7 @@ function show() {
   minusPending = false;
   var notes = [];
   if (c.noclip) notes.push('No clip: this is the full video. Find the penalty yourself (minute ' + esc(c.minute) + ').');
-  if (c.prev_corner || c.prev_approach) notes.push('Already entered: corner ' + esc(c.prev_corner || '-') + ', ' + esc(c.prev_approach || '-') + (c.prev_issue ? ' &middot; issue: ' + esc(c.prev_issue) : '') + '. Next will overwrite.');
+  if (c.prev_corner || c.prev_approach) notes.push('Already entered: corner ' + esc(c.prev_corner || '-') + ', ' + esc(c.prev_approach || '-') + (c.prev_issue ? ' &middot; issue: ' + esc(c.prev_issue) : '') + '. Already filled cells are never overwritten - Next will not change them.');
   $('clipnote').innerHTML = notes.join('<br>'); $('clipnote').style.display = notes.length ? 'block' : 'none';
   var pc = String(c.prev_corner || ''), pa = String(c.prev_approach || '');
   sel = { corner: null, approach: null, invalid: pc === 'invalid' };
@@ -176,6 +181,7 @@ function load(c) {
 function replay() { if (pos < clips.length) load(clips[pos]); }
 
 function submitNext() {
+  if (!annotator) { alert('Click Lise or Emile first.'); return; }
   if (!sel.invalid && (!sel.corner || !sel.approach)) { alert('Select a corner and an approach, or click "Clip not valid".'); return; }
   var extra = sel.invalid ? { invalid: 'yes' } : { corner: sel.corner, approach: sel.approach };
   if ($('review').checked) extra.review = 'yes';
@@ -184,7 +190,8 @@ function submitNext() {
 
 function submit(extra) {
   if (pos >= clips.length) return;
-  var data = { api: '1', row_key: clips[pos].nr };
+  if (!annotator) { alert('Click Lise or Emile first.'); return; }
+  var data = { api: '1', row_key: clips[pos].nr, annotator: annotator };
   for (var k in extra) data[k] = extra[k];
   queue.push(data);
   pos++;
@@ -199,8 +206,8 @@ function pump() {
   var data = queue[0];
   fetch(API, { method: 'POST', body: new URLSearchParams(data) })
     .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function (j) { if (j.saved !== true) throw new Error('row check failed'); savedCount++; })
-    .catch(function () { failed.push(data.row_key); })
+    .then(function (j) { if (j.saved !== true) throw new Error(j.reason || 'row check failed'); savedCount++; })
+    .catch(function (err) { failed.push(data.row_key + (err && err.message && !/^HTTP|fetch/i.test(err.message) ? ' [' + err.message + ']' : '')); })
     .then(function () { queue.shift(); saving = false; pump(); });
 }
 
@@ -219,11 +226,14 @@ window.addEventListener('beforeunload', function (e) {
 });
 
 buildButtons();
+document.querySelectorAll('[data-who]').forEach(function (d) { d.onclick = function () { if (queue.length || saving) { alert('Still saving, try again in a moment.'); return; } annotator = d.dataset.who; try { localStorage.setItem('penaltyAnnotator', annotator); } catch (e) {} $('go').click(); }; });
 function loadList(from) {
   if (queue.length || saving) { alert('Still saving, try again in a moment.'); return; }
+  paintWho();
+  if (!annotator) { $('main').style.display = 'none'; $('finished').style.display = 'none'; $('game').textContent = 'Click Lise or Emile (top) before entering data.'; $('progress').textContent = ''; return; }
   $('main').style.display = 'none'; $('finished').style.display = 'none';
   $('game').textContent = 'Loading clips...'; $('progress').textContent = '';
-  var qs = '?api=1' + (from !== '' ? '&from=' + encodeURIComponent(from) : '') +
+  var qs = '?api=1&annotator=' + encodeURIComponent(annotator) + (from !== '' ? '&from=' + encodeURIComponent(from) : '') +
     ($('f_done').checked ? '' : '&incl_done=1') + ($('f_noclip').checked ? '' : '&incl_noclip=1') + ($('f_blocked').checked ? '' : '&incl_blocked=1');
   fetch(API + qs)
     .then(function (r) { return r.json(); })
