@@ -48,7 +48,7 @@ h3{margin:2px 0 6px;font-size:15px}
 </head>
 <body>
 <div class="top">
-  <h1>Penalty annotator <span class="muted">v10</span></h1>
+  <h1>Penalty annotator <span class="muted">v11</span></h1>
   <div class="game" id="game">Loading clips...</div>
   <span class="muted" id="progress"></span>
   <span class="who" id="who">Annotator: <span class="opt" data-who="lise">Lise</span><span class="opt" data-who="emile">Emile</span></span>
@@ -64,6 +64,7 @@ h3{margin:2px 0 6px;font-size:15px}
       <button class="btn2" id="replay">&#8635; Replay clip (R)</button>
       <a class="btn2" id="ytlink" href="#" target="penaltyclip" style="text-decoration:none;color:#222">Open on YouTube</a>
       <button class="btn2" id="mark" style="display:none;background:#fff4e0;border-color:#d08a1e;font-weight:600">&#9201; Mark penalty start (M)</button>
+      <button class="btn2" id="fullvid">&#9654; Play without end time (F)</button>
       <span class="muted" id="clipinfo"></span>
     </div>
   </div>
@@ -121,6 +122,7 @@ function buildButtons() {
   document.querySelectorAll('.out').forEach(function (d) { d.onclick = function () { pick('corner', d.dataset.corner); }; });
   $('invalid').onclick = function () { if (!annotator) { alert('Click Lise or Emile first.'); return; } var ex = { invalid: 'yes' }; if ($('review').checked) ex.review = 'yes'; sel.invalid = true; paint(); submit(ex); };
   $('mark').onclick = markStart;
+  $('fullvid').onclick = playFull;
   $('next').onclick = submitNext;
   $('blocked').onclick = function () { submit({ blocked: 'yes' }); };
   $('replay').onclick = replay;
@@ -162,7 +164,7 @@ function show() {
   minusPending = false;
   var notes = [];
   if (c.noclip) notes.push(Number(c.start) > 0 ? 'No clip link: playing the full video from the Watch from time (' + fmt(c.start) + ').' : 'No clip: this is the full video. Find the penalty (minute ' + esc(c.minute) + ') and press Mark penalty start when it begins.');
-  $('mark').style.display = c.noclip ? 'inline-block' : 'none';
+  $('mark').style.display = 'inline-block';
   if (c.prev_corner || c.prev_approach) notes.push('Already entered: corner ' + esc(c.prev_corner || '-') + ', ' + esc(c.prev_approach || '-') + (c.prev_issue ? ' &middot; issue: ' + esc(c.prev_issue) : '') + '. Already filled cells are never overwritten - Next will not change them.');
   $('clipnote').innerHTML = notes.join('<br>'); $('clipnote').style.display = notes.length ? 'block' : 'none';
   var pc = String(c.prev_corner || ''), pa = String(c.prev_approach || '');
@@ -182,6 +184,7 @@ function load(c) {
   curTime = null;
   $('yt').src = url;
 }
+function playFull() { if (pos >= clips.length) return; var c = clips[pos]; curTime = null; $('yt').src = 'https://www.youtube.com/embed/' + encodeURIComponent(c.id) + '?start=' + Math.max(0, Math.floor((Number(c.start) || 0) - 60)) + '&autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=' + encodeURIComponent(location.origin) + '&r=' + (replayCount++); }
 function replay() { if (pos < clips.length) load(clips[pos]); }
 
 function submitNext() {
@@ -226,6 +229,7 @@ function markStart() {
   if (pos >= clips.length) return;
   if (!annotator) { alert('Click Lise or Emile first.'); return; }
   var c = clips[pos];
+  if (!c.noclip && !confirm('This penalty already has a clip segment. Replace it with the start time you marked? The segment link (column S) is cleared and the new start - end goes into Watch from (column T).')) return;
   var secs = curTime;
   if (secs === null || secs === undefined) {
     var v = prompt('Could not read the player time. Type the start time (m:ss):', '');
@@ -239,7 +243,7 @@ function markStart() {
   fetch(API, { method: 'POST', body: new URLSearchParams({ api: '1', row_key: c.nr, annotator: annotator, mark_start: String(secs) }) })
     .then(function (r) { return r.json(); })
     .then(function (j) {
-      if (j.saved === true) { st.className = 'status ok'; st.textContent = 'Start ' + fmt(secs) + ' saved in Watch from for Nr ' + c.nr; c.start = secs; }
+      if (j.saved === true) { st.className = 'status ok'; st.textContent = 'Start ' + fmt(secs) + ' saved in Watch from for Nr ' + c.nr + (c.noclip ? '' : ' (old segment replaced)'); c.start = secs; c.end = secs + 20; }
       else { st.className = 'status err'; st.textContent = 'Start NOT saved for Nr ' + c.nr + ': ' + (j.reason || 'unknown'); }
     })
     .catch(function () { st.className = 'status err'; st.textContent = 'Start NOT saved for Nr ' + c.nr + ' (connection).'; });
@@ -252,7 +256,8 @@ document.addEventListener('keydown', function (e) {
   if (/^[1-9]$/.test(k)) { var v = minusPending ? '-' + k : k; minusPending = false; if (v === '-5' || v === '-8') return; pick('corner', v); }
   else if (APPROACH_KEYS[k]) pick('approach', APPROACH_KEYS[k]);
   else if (k === 'r') replay();
-  else if (k === 'm' && pos < clips.length && clips[pos].noclip) markStart();
+  else if (k === 'f') playFull();
+  else if (k === 'm' && pos < clips.length) markStart();
   else if (k === 'enter') { e.preventDefault(); submitNext(); }
 });
 
