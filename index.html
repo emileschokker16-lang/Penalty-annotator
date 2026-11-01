@@ -48,7 +48,7 @@ h3{margin:2px 0 6px;font-size:15px}
 </head>
 <body>
 <div class="top">
-  <h1>Penalty annotator <span class="muted">v11</span></h1>
+  <h1>Penalty annotator <span class="muted">v12</span></h1>
   <div class="game" id="game">Loading clips...</div>
   <span class="muted" id="progress"></span>
   <span class="who" id="who">Annotator: <span class="opt" data-who="lise">Lise</span><span class="opt" data-who="emile">Emile</span></span>
@@ -229,7 +229,6 @@ function markStart() {
   if (pos >= clips.length) return;
   if (!annotator) { alert('Click Lise or Emile first.'); return; }
   var c = clips[pos];
-  if (!c.noclip && !confirm('This penalty already has a clip segment. Replace it with the start time you marked? The segment link (column S) is cleared and the new start - end goes into Watch from (column T).')) return;
   var secs = curTime;
   if (secs === null || secs === undefined) {
     var v = prompt('Could not read the player time. Type the start time (m:ss):', '');
